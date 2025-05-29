@@ -1,0 +1,278 @@
+To help you kickstart your **AI-Powered Intrusion Detection System (NIDS)** project, I’ll provide sample code for **data loading** (using Python to load the NSL-KDD dataset into a PostgreSQL database) and **Flask setup** (creating a basic web application with an endpoint for anomaly detection). The code leverages your skills in Python, SQL, and web development (from your resume’s projects like the Diabetes Data Analysis and Dummy E-Commerce Store). The NSL-KDD dataset is chosen for its accessibility and suitability for intrusion detection. The code is modular, commented, and designed to align with the project plan, ensuring you can build upon it for your portfolio.
+
+### Code Overview
+1. **Data Loading**: A Python script to load the NSL-KDD dataset (CSV format) into a PostgreSQL database, preprocessing key fields (e.g., timestamp, src_ip, protocol, label).
+2. **Flask Setup**: A basic Flask application with a `/predict` endpoint to serve anomaly detection results and a simple HTML dashboard using Chart.js for visualization, building on your HTML/CSS experience.
+
+### Assumptions
+- You have PostgreSQL installed and running locally (or on a cloud instance).
+- NSL-KDD dataset (`KDDTrain+.csv`) is downloaded from [Kaggle](https://www.kaggle.com/datasets/hassan06/nslkdd).
+- Python libraries (`pandas`, `psycopg2-binary`, `scikit-learn`, `flask`) are installed (`pip install pandas psycopg2-binary scikit-learn flask`).
+- For simplicity, the code focuses on a subset of NSL-KDD features (e.g., src_bytes, protocol_type, label).
+
+### 1. Data Loading Code
+This script loads the NSL-KDD dataset into PostgreSQL, creating a `logs` table and preprocessing data for anomaly detection.
+
+```python
+import pandas as pd
+import psycopg2
+from psycopg2 import sql
+from datetime import datetime
+
+# Database connection parameters
+DB_PARAMS = {
+    "dbname": "nids_db",
+    "user": "your_username",
+    "password": "your_password",
+    "host": "localhost",
+    "port": "5432"
+}
+
+# Path to NSL-KDD dataset (update with your local path)
+DATASET_PATH = "path/to/KDDTrain+.csv"
+
+def create_table():
+    """Create logs table in PostgreSQL."""
+    try:
+        conn = psycopg2.connect(**DB_PARAMS)
+        cursor = conn.cursor()
+        
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS logs (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMP,
+            src_ip VARCHAR(15),
+            dst_ip VARCHAR(15),
+            protocol VARCHAR(10),
+            src_bytes INTEGER,
+            label VARCHAR(20)
+        );
+        """
+        cursor.execute(create_table_query)
+        conn.commit()
+        print("Table 'logs' created successfully.")
+    except Exception as e:
+        print(f"Error creating table: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+def load_data():
+    """Load NSL-KDD dataset into PostgreSQL."""
+    # Read NSL-KDD dataset (subset of columns for simplicity)
+    df = pd.read_csv(DATASET_PATH, usecols=["duration", "protocol_type", "src_bytes", "dst_bytes", "class"])
+    
+    # Preprocess: Map labels (normal/anomaly), generate dummy IPs and timestamps
+    df["label"] = df["class"].apply(lambda x: "normal" if x == "normal" else "anomaly")
+    df["src_ip"] = ["192.168.1." + str(i % 255) for i in range(len(df))]
+    df["dst_ip"] = ["10.0.0." + str(i % 255) for i in range(len(df))]
+    df["timestamp"] = [datetime(2025, 1, 1) + pd.Timedelta(seconds=i) for i in range(len(df))]
+    
+    # Connect to database
+    try:
+        conn = psycopg2.connect(**DB_PARAMS)
+        cursor = conn.cursor()
+        
+        # Insert data into logs table
+        insert_query = sql.SQL("""
+        INSERT INTO logs (timestamp, src_ip, dst_ip, protocol, src_bytes, label)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """)
+        
+        for _, row in df.iterrows():
+            cursor.execute(insert_query, (
+                row["timestamp"],
+                row["src_ip"],
+                row["dst_ip"],
+                row["protocol_type"],
+                row["src_bytes"],
+                row["label"]
+            ))
+        
+        conn.commit()
+        print(f"Loaded {len(df)} records into 'logs' table.")
+    except Exception as e:
+        print(f"Error loading data: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+if __name__ == "__main__":
+    create_table()
+    load_data()
+```
+
+**Instructions**:
+1. Update `DB_PARAMS` with your PostgreSQL credentials (create database `nids_db` first: `CREATE DATABASE nids_db;`).
+2. Update `DATASET_PATH` to the location of `KDDTrain+.csv`.
+3. Run the script: `python load_nslkdd_to_postgres.py`.
+4. Verify data in PostgreSQL: `SELECT COUNT(*) FROM logs;`.
+
+### 2. Flask Setup Code
+This sets up a basic Flask application with a `/predict` endpoint for anomaly detection using Isolation Forest and a dashboard to visualize results using Chart.js. The model is trained on a subset of NSL-KDD features for simplicity.
+
+```python
+from flask import Flask, render_template, jsonify
+import pandas as pd
+import psycopg2
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import LabelEncoder
+import numpy as np
+
+# Flask app initialization
+app = Flask(__name__)
+
+# Database connection parameters
+DB_PARAMS = {
+    "dbname": "nids_db",
+    "user": "your_username",
+    "password": "your_password",
+    "host": "localhost",
+    "port": "5432"
+}
+
+# Load and train model
+def train_model():
+    """Train Isolation Forest model on NSL-KDD data."""
+    try:
+        conn = psycopg2.connect(**DB_PARAMS)
+        query = "SELECT src_bytes, protocol FROM logs"
+        df = pd.read_sql(query, conn)
+        conn.close()
+        
+        # Preprocess: Encode protocol
+        le = LabelEncoder()
+        df["protocol"] = le.fit_transform(df["protocol"])
+        
+        # Train Isolation Forest
+        model = IsolationForest(contamination=0.1, random_state=42)
+        X = df[["src_bytes", "protocol"]]
+        model.fit(X)
+        return model, le
+    except Exception as e:
+        print(f"Error training model: {e}")
+        return None, None
+
+MODEL, LE = train_model()
+
+@app.route("/")
+def index():
+    """Render dashboard."""
+    return render_template("index.html")
+
+@app.route("/predict")
+def predict():
+    """Fetch recent logs and predict anomalies."""
+    try:
+        conn = psycopg2.connect(**DB_PARAMS)
+        query = "SELECT src_bytes, protocol, src_ip FROM logs ORDER BY timestamp DESC LIMIT 100"
+        df = pd.read_sql(query, conn)
+        conn.close()
+        
+        # Preprocess
+        df["protocol"] = LE.transform(df["protocol"])
+        X = df[["src_bytes", "protocol"]]
+        
+        # Predict (-1 for anomaly, 1 for normal)
+        predictions = MODEL.predict(X)
+        results = [
+            {"src_ip": row["src_ip"], "src_bytes": row["src_bytes"], "is_anomaly": pred == -1}
+            for _, row, pred in zip(range(len(df)), df.itertuples(), predictions)
+        ]
+        
+        # Prepare data for Chart.js
+        chart_data = {
+            "labels": df["src_ip"].tolist(),
+            "datasets": [
+                {
+                    "label": "Source Bytes",
+                    "data": [
+                        {"x": row["src_ip"], "y": row["src_bytes"]}
+                        for _, row in df.iterrows()
+                    ],
+                    "backgroundColor": [
+                        "#FF6384" if pred == -1 else "#36A2EB"
+                        for pred in predictions
+                    ]
+                }
+            ]
+        }
+        
+        return jsonify({"results": results, "chart_data": chart_data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NIDS Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        canvas { max-width: 800px; margin: 20px auto; }
+    </style>
+</head>
+<body>
+    <h1>Network Intrusion Detection System</h1>
+    <canvas id="anomalyChart"></canvas>
+    <div id="results"></div>
+
+    <script>
+        fetch("/predict")
+            .then(response => response.json())
+            .then(data => {
+                // Render Chart.js scatter chart
+                const ctx = document.getElementById("anomalyChart").getContext("2d");
+                new Chart(ctx, {
+                    type: "scatter",
+                    data: data.chart_data,
+                    options: {
+                        scales: {
+                            x: { title: { display: true, text: "Source IP" } },
+                            y: { title: { display: true, text: "Source Bytes" } }
+                        },
+                        plugins: {
+                            legend: { display: true },
+                            title: { display: true, text: "Network Traffic Anomalies" }
+                        }
+                    }
+                });
+
+                // Display results
+                const resultsDiv = document.getElementById("results");
+                resultsDiv.innerHTML = "<h2>Recent Logs</h2><ul>" + 
+                    data.results.map(r => 
+                        `<li>IP: ${r.src_ip}, Bytes: ${r.src_bytes}, Anomaly: ${r.is_anomaly}</li>`
+                    ).join("") + "</ul>";
+            });
+    </script>
+</body>
+</html>
+```
+
+**Instructions**:
+1. Create a project directory with a `templates` folder for `index.html`.
+2. Update `DB_PARAMS` in `app.py` with your PostgreSQL credentials.
+3. Run `app.py`: `python app.py`.
+4. Access the dashboard at `http://localhost:5000` to see the scatter chart and anomaly results.
+5. Ensure `KDDTrain+.csv` is loaded into PostgreSQL using the data loading script first.
+
+### Next Steps
+- **Enhance Model**: Add more NSL-KDD features (e.g., dst_bytes, service) to improve accuracy. Tune Isolation Forest’s `contamination` parameter.
+- **Expand Dashboard**: Add filters (e.g., by IP or protocol) using HTML forms and Flask routes, leveraging your web development skills.
+- **Add Authentication**: Integrate Flask-Login for role-based access, as planned in the project timeline.
+- **Deploy**: Push to GitHub and deploy on Heroku using their Flask guide, automating with Bash scripts (per your resume).
+- **Document**: Create UML diagrams (use case, class) and a technical report, mirroring your Flight Booking System documentation.
+
+### Notes
+- The code uses a simple Isolation Forest model for quick setup. You can later experiment with Autoencoders for better anomaly detection.
+- The dashboard displays a scatter chart (src_ip vs. src_bytes) with anomalies in red, normal traffic in blue, inspired by the project plan’s chart example.
+- Store the project in a GitHub repository with a README for portfolio appeal.
+
+If you need help with specific steps (e.g., PostgreSQL setup, model tuning, or deployment), additional code (e.g., authentication), or a LaTeX document to update the project plan, let me know! This setup aligns with your skills and the project plan, setting you up for a strong cybersecurity portfolio piece.
