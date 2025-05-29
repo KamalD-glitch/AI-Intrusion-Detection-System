@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Network Intrusion Detection System</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        canvas { max-width: 800px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>Network Intrusion Detection System</h1>
+    <canvas id="scatterChart"></canvas>
+    <h2>Recent Predictions</h2>
+    <ul id="predictions"></ul>
+
+    <script>
+        fetch('/predict')
+            .then(response => response.json())
+            .then(data => {
+                // Scatter chart
+                const ctx = document.getElementById('scatterChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'scatter',
+                    data: data.chart_data,
+                    options: {
+                        scales: {
+                            x: { title: { display: true, text: 'Source IP' } },
+                            y: { title: { display: true, text: 'Source Bytes' } }
+                        }
+                    }
+                });
+
+                // Display predictions
+                const predictionsList = document.getElementById('predictions');
+                data.results.forEach(result => {
+                    const li = document.createElement('li');
+                    li.textContent = `IP: ${result.src_ip}, Source Bytes: ${result.src_bytes}, Anomaly: ${result.is_anomaly}`;
+                    predictionsList.appendChild(li);
+                });
+            })
+            .catch(error => console.error('Error:', error));
+    </script>
+</body>
+</html>
