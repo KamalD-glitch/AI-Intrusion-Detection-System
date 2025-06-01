@@ -6,8 +6,8 @@ from datetime import datetime
 # Database connection parameters
 DB_PARAMS = {
     "dbname": "nids_db",
-    "user": "your_username",
-    "password": "your_password",
+    "user": "postgres",
+    "password": "K1am2tf4214!",
     "host": "localhost",
     "port": "5432"
 }
