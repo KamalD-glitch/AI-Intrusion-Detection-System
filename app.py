@@ -1,6 +1,6 @@
 from flask import Flask, render_template, jsonify
 import pandas as pd
-import psycopg2
+from sqlalchemy import create_engine
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
@@ -8,23 +8,31 @@ import numpy as np
 # Flask app initialization
 app = Flask(__name__)
 
-# Database connection parameters
-DB_PARAMS = {
-    "dbname": "nids_db",
-    "user": "postgres",
-    "password": "K1am2tf4214!",
-    "host": "localhost",
-    "port": "5432"
-}
+# Create SQLAlchemy engine
+DB_URL = "postgresql://postgres:Kamal123!@localhost:5432/nids_db"
+engine = create_engine(DB_URL)
+
+# Fix: Remove duplicate route definition for "/"
+# The first index() function is correct; remove the second one
+@app.route('/')
+def index():
+    """Render dashboard with initial data for the chart."""
+    query = "SELECT src_ip, src_bytes, label FROM logs LIMIT 1000"
+    df = pd.read_sql(query, engine)
+    print("Initial chart data:", df.to_dict('records')[:5])  # Debug: Print first 5 records
+    return render_template('index.html', chart_data=df.to_dict('records'))
 
 # Load and train model
 def train_model():
     """Train Isolation Forest model on NSL-KDD data."""
     try:
-        conn = psycopg2.connect(**DB_PARAMS)
+        # Use SQLAlchemy engine instead of psycopg2
         query = "SELECT src_bytes, protocol FROM logs"
-        df = pd.read_sql(query, conn)
-        conn.close()
+        df = pd.read_sql(query, engine)
+        
+        # Debug: Check if data is retrieved
+        print("Training data shape:", df.shape)
+        print("Training data sample:", df.head().to_dict('records'))
         
         # Preprocess: Encode protocol
         le = LabelEncoder()
@@ -41,19 +49,16 @@ def train_model():
 
 MODEL, LE = train_model()
 
-@app.route("/")
-def index():
-    """Render dashboard."""
-    return render_template("index.html")
-
 @app.route("/predict")
 def predict():
     """Fetch recent logs and predict anomalies."""
     try:
-        conn = psycopg2.connect(**DB_PARAMS)
         query = "SELECT src_bytes, protocol, src_ip FROM logs ORDER BY timestamp DESC LIMIT 100"
-        df = pd.read_sql(query, conn)
-        conn.close()
+        df = pd.read_sql(query, engine)
+        
+        # Debug: Check if data is retrieved
+        print("Predict data shape:", df.shape)
+        print("Predict data sample:", df.head().to_dict('records'))
         
         # Preprocess
         df["protocol"] = LE.transform(df["protocol"])
@@ -62,7 +67,7 @@ def predict():
         # Predict (-1 for anomaly, 1 for normal)
         predictions = MODEL.predict(X)
         results = [
-            {"src_ip": row["src_ip"], "src_bytes": row["src_bytes"], "is_anomaly": pred == -1}
+            {"src_ip": row.src_ip, "src_bytes": row.src_bytes, "is_anomaly": str(pred == -1).lower()}
             for _, row, pred in zip(range(len(df)), df.itertuples(), predictions)
         ]
         
@@ -84,8 +89,12 @@ def predict():
             ]
         }
         
+        # Debug: Check the chart data being sent
+        print("Chart data sent to frontend:", chart_data)
+        
         return jsonify({"results": results, "chart_data": chart_data})
     except Exception as e:
+        print(f"Error in predict endpoint: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":

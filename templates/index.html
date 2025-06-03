@@ -18,15 +18,54 @@
         fetch('/predict')
             .then(response => response.json())
             .then(data => {
+                console.log('Received data:', data);  // Debug: Log the received data
+
+                // Extract the last octet of the IP for numerical x-axis
+                const chartData = data.chart_data.datasets[0];
+                const processedData = chartData.data.map(point => {
+                    const lastOctet = parseInt(point.x.split('.').pop()); // e.g., "192.168.1.2" -> 2
+                    return { x: lastOctet, y: point.y };
+                });
+
+                // Split into normal and anomaly data based on backgroundColor
+                const normalData = [];
+                const anomalyData = [];
+                processedData.forEach((point, index) => {
+                    if (chartData.backgroundColor[index] === '#36A2EB') {
+                        normalData.push(point);
+                    } else if (chartData.backgroundColor[index] === '#FF6384') {
+                        anomalyData.push(point);
+                    }
+                });
+
                 // Scatter chart
                 const ctx = document.getElementById('scatterChart').getContext('2d');
                 new Chart(ctx, {
                     type: 'scatter',
-                    data: data.chart_data,
+                    data: {
+                        datasets: [
+                            {
+                                label: 'Normal Traffic',
+                                data: normalData,
+                                backgroundColor: '#36A2EB'
+                            },
+                            {
+                                label: 'Anomalies',
+                                data: anomalyData,
+                                backgroundColor: '#FF6384'
+                            }
+                        ]
+                    },
                     options: {
                         scales: {
-                            x: { title: { display: true, text: 'Source IP' } },
-                            y: { title: { display: true, text: 'Source Bytes' } }
+                            x: {
+                                title: { display: true, text: 'Source IP (Last Octet)' },
+                                type: 'linear',
+                                position: 'bottom'
+                            },
+                            y: {
+                                title: { display: true, text: 'Source Bytes' }
+                            }
                         }
                     }
                 });

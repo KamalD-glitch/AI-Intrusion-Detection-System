@@ -7,13 +7,13 @@ from datetime import datetime
 DB_PARAMS = {
     "dbname": "nids_db",
     "user": "postgres",
-    "password": "K1am2tf4214!",
+    "password": "Kamal123!",
     "host": "localhost",
     "port": "5432"
 }
 
 # Path to NSL-KDD dataset (update with your local path)
-DATASET_PATH = "path/to/KDDTrain+.csv"
+DATASET_PATH = "data/KDDTrain+.csv"
 
 def create_table():
     """Create logs table in PostgreSQL."""
@@ -44,7 +44,20 @@ def create_table():
 def load_data():
     """Load NSL-KDD dataset into PostgreSQL."""
     # Read NSL-KDD dataset (subset of columns for simplicity)
-    df = pd.read_csv(DATASET_PATH, usecols=["duration", "protocol_type", "src_bytes", "dst_bytes", "class"])
+    # Define all column names for NSL-KDD dataset (42 columns)
+    columns = [
+    "duration", "protocol_type", "service", "flag", "src_bytes", "dst_bytes", "land",
+    "wrong_fragment", "urgent", "hot", "num_failed_logins", "logged_in", "num_compromised",
+    "root_shell", "su_attempted", "num_root", "num_file_creations", "num_shells",
+    "num_access_files", "num_outbound_cmds", "is_host_login", "is_guest_login", "count",
+    "srv_count", "serror_rate", "srv_serror_rate", "rerror_rate", "srv_rerror_rate",
+    "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate", "dst_host_count",
+    "dst_host_srv_count", "dst_host_same_srv_rate", "dst_host_diff_srv_rate",
+    "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
+    "dst_host_srv_serror_rate", "dst_host_rerror_rate", "dst_host_srv_rerror_rate", "class", "difficulty"
+    ]
+    # Read the dataset with no header and specified columns
+    df = pd.read_csv(DATASET_PATH, names=columns, usecols=["duration", "protocol_type", "src_bytes", "dst_bytes", "class"], header=None)
     
     # Preprocess: Map labels (normal/anomaly), generate dummy IPs and timestamps
     df["label"] = df["class"].apply(lambda x: "normal" if x == "normal" else "anomaly")
